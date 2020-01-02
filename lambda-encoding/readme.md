@@ -27,7 +27,7 @@ but, alas, the name of the encoding has to use only ascii characters.
 A sample program, `test.py`, is included for convenience.
 You can then run that program or your own following one of the methods described below.
 
-### Environment variable
+### Environment variable method
 
 We assume you are in the same directory where this file and the
 file `usercustomize.py` are located.  You can set the environment variable
@@ -38,3 +38,19 @@ PYTHONPATH to be equal to this directory. On Windows, this can be done by
 Doing so will ensure that Python will executes `usercustomize.py` prior
 to executing any user code. The file `usercustomize.py` does the
 require import to ensure that the lambda-encoding codec is registered.
+
+
+### Special console
+
+I have not been able to find a way to change the default encoding for
+the normal Python REPL. However, we can simulate it using
+the `code` module; I have done so to create a special console.
+
+Start a Python REPL from the directory where this file is located.
+Then do the following:
+
+    >>> from lambda_coded import start_console
+    >>> start_console()
+    >>> double = λ x: 2*x
+    >>> double(3)
+    6

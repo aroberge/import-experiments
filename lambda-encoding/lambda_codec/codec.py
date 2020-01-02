@@ -11,7 +11,7 @@ variable. Setting it to False, will default to using the normal utf-8 encoding.
 
 import codecs
 import encodings
-import tokenize
+from tokenize import generate_tokens
 
 from io import StringIO
 
@@ -19,16 +19,61 @@ utf8 = encodings.search_function("utf8")
 USE_LAMBDA = True
 
 
+class Token:
+    """Token as generated from tokenize.generate_tokens written here in
+       a more convenient form for our purpose.
+    """
+
+    def __init__(self, token):
+        self.type = token[0]
+        self.string = token[1]
+        self.start_line, self.start_col = token[2]
+        self.end_line, self.end_col = token[3]
+        # ignore last parameter which is the logical line
+
+
 def lambda_transform_string(text):
-    """Simple transformation: replaces any single token λ by lambda"""
-    tokens = []
-    for tok_type, tok_string, _, _, _ in tokenize.generate_tokens(
-        StringIO(text).readline
-    ):
-        if tok_string == "λ":
-            tok_string = "lambda"
-        tokens.append((tok_type, tok_string))
-    return tokenize.untokenize(tokens)
+    """Simple transformation: replaces any single token λ by lambda.
+
+        If we do not need to use a console/REPL, a simpler version of this
+        function would be as follows:
+
+        def lambda_transform_string(text):
+            import tokenize
+            tokens = []
+            for tok_type, tok_string, _, _, _ in tokenize.generate_tokens(
+                StringIO(text).readline
+            ):
+                if tok_string == "λ":
+                    tok_string = "lambda"
+                tokens.append((tok_type, tok_string))
+            return tokenize.untokenize(tokens)
+
+        H
+    """
+    result = []
+    prev_col = 0
+    prev_lineno = 0
+
+    for tok in generate_tokens(StringIO(text).readline):
+        token = Token(tok)
+        if not token.string.strip(" \t"):  # we keep track of the spaces below
+            continue
+
+        if token.start_line > prev_lineno:
+            prev_col = 0
+        if token.start_col > prev_col and token.string != "\n":
+            result.append(" " * (token.start_col - prev_col))
+        prev_col = token.end_col
+        prev_lineno = token.end_line
+
+        if token.string == "λ":
+            result.append("lambda")
+        else:
+            result.append(token.string)
+
+    result = "".join(result)
+    return result
 
 
 def lambda_decode(input, errors="strict"):
