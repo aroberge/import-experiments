@@ -38,6 +38,7 @@ PYTHONPATH to be equal to this directory. On Windows, this can be done by
 Doing so will ensure that Python will executes `usercustomize.py` prior
 to executing any user code. The file `usercustomize.py` does the
 require import to ensure that the lambda-encoding codec is registered.
+You can then use it from anywhere.
 
 
 ### Special console
