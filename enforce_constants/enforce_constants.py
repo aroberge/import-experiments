@@ -1,3 +1,4 @@
+"""This is a simple proof of concept. It is not meant to be taken seriously."""
 import re
 import os.path
 import sys
@@ -6,31 +7,16 @@ from importlib.abc import Loader, MetaPathFinder
 from importlib.util import spec_from_file_location
 
 MAIN_MODULE_NAME = None
-constant_assignment_pattern = re.compile(r"^([A-Z_][A-Z0-9_]*)\s*=\s*(.+)")
-preamble = """import sys
-
-def __my_setattr__(name, value, line_number):
-    if name == name.upper() and name in sys.modules[__name__].__dict__:
-        print(name + ", on line %s, is a constant; you cannot change its value." %
-              line_number
-             )
-        return
-    setattr(sys.modules[__name__], name, eval(value))
-
-sys.modules[__name__].__setattr__ = __my_setattr__
-"""
+constant_assignment_pattern = re.compile(r"^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.+)")
+module_assignment_pattern = re.compile(
+    r"^\s*([\w_][\w\d_]*\.[A-Z_][A-Z0-9_]*)\s*=\s*(.+)"
+)
 
 
-def transform_constant_assignment(source):
+def transform_constant_assignment(source, mod_name):
     """Identifies simple constant assignments and replace them by a
        special function call. Here, a constant is defined as any identifier
        written in uppercase letters.
-
-       Note that this does not work if the value assigned is a tuple without
-       enclosing parens, i.e.
-
-       A = (1, 2)  # ok
-       B = 1, 2  # not ok
     """
     global MAIN_MODULE_NAME
     # First, ensure that if the module is meant to be run as main script,
@@ -45,14 +31,30 @@ def transform_constant_assignment(source):
         MAIN_MODULE_NAME = None
 
     lines = source.split("\n")
-    new_lines = preamble.split("\n")
+    new_lines = ["import sys"]
     for line_number, line in enumerate(lines):
         match = re.search(constant_assignment_pattern, line)
+        match_mod = re.search(module_assignment_pattern, line)
         if match:
-            new_lines.append(
-                "sys.modules[__name__].__setattr__("
-                + f"{repr(match.group(1))}, {repr(match.group(2))}, {line_number})"
-            )
+            name = match.group(1)
+            if name == name.upper():
+                indent = len(line) - len(line.lstrip())
+                message = "Module %s on line %d:" % (mod_name, line_number)
+                new_lines.append(
+                    " " * indent
+                    + "sys.modules[__name__].__setattr__("
+                    + f"{repr(name)}, {repr(match.group(2))}, '{message}')"
+                )
+        elif match_mod:
+            mod_name2, var_name = match_mod.group(1).split(".")
+            if mod_name2 in sys.modules and var_name == var_name.upper():
+                message = "Module %s on line %d:" % (mod_name, line_number)
+                indent = len(line) - len(line.lstrip())
+                new_lines.append(
+                    " " * indent
+                    + f"sys.modules['{mod_name2}'].__setattr__("
+                    + f"{repr(var_name)}, {repr(match_mod.group(2))}, '{message}')"
+                )
         else:
             new_lines.append(line)
 
@@ -108,15 +110,26 @@ class MyLoader(Loader):
     def exec_module(self, module):
         """import the source code, transform it before executing it so that
            it is known to Python."""
-        # global MAIN_MODULE_NAME
-        # if module.__name__ == MAIN_MODULE_NAME:
-        #     module.__name__ = "__main__"
-        #     MAIN_MODULE_NAME = None
+
+        def my_setattr(name, value, message):
+            if name in module.__dict__:
+                print(
+                    message,
+                    "\n   ",
+                    name,
+                    "is a constant in module",
+                    module.__name__,
+                    "; you cannot change its value.",
+                )
+                return
+            setattr(module, name, eval(value))
+
+        module.__setattr__ = my_setattr
 
         with open(self.filename) as f:
             source = f.read()
 
-        source = transform_constant_assignment(source)
+        source = transform_constant_assignment(source, module.__name__)
         exec(source, sys.modules[module.__name__].__dict__)
 
 
