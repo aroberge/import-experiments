@@ -1,7 +1,9 @@
 """This is a simple proof of concept. It is not meant to be taken seriously."""
-import re
+
 import os.path
+import re
 import sys
+import types
 
 from importlib.abc import Loader, MetaPathFinder
 from importlib.util import spec_from_file_location
@@ -34,7 +36,7 @@ def transform_constant_assignment(source, mod_name):
     new_lines = ["import sys"]
     for line_number, line in enumerate(lines):
         match = re.search(constant_assignment_pattern, line)
-        match_mod = re.search(module_assignment_pattern, line)
+        # match_mod = re.search(module_assignment_pattern, line)
         if match:
             name = match.group(1)
             if name == name.upper():
@@ -45,20 +47,23 @@ def transform_constant_assignment(source, mod_name):
                     + "sys.modules[__name__].__setattr__("
                     + f"{repr(name)}, {repr(match.group(2))}, '{message}')"
                 )
-        elif match_mod:
-            mod_name2, var_name = match_mod.group(1).split(".")
-            if mod_name2 in sys.modules and var_name == var_name.upper():
-                message = "Module %s on line %d:" % (mod_name, line_number)
-                indent = len(line) - len(line.lstrip())
-                new_lines.append(
-                    " " * indent
-                    + f"sys.modules['{mod_name2}'].__setattr__("
-                    + f"{repr(var_name)}, {repr(match_mod.group(2))}, '{message}')"
-                )
         else:
             new_lines.append(line)
 
     return "\n".join(new_lines)
+
+
+class ModuleWithConstants(types.ModuleType):
+
+    def __setattr__(self, attr, value, message=None):
+        if attr == attr.upper() and attr in self.__dict__:
+            if message is not None:
+                print(message)
+            else:
+                print("Preventing change from other module:")
+            print(f"You cannot change the value of %s.%s" % (self.__name__, attr))
+        else:
+            super().__setattr__(attr, value)
 
 
 class MyMetaFinder(MetaPathFinder):
@@ -111,20 +116,7 @@ class MyLoader(Loader):
         """import the source code, transform it before executing it so that
            it is known to Python."""
 
-        def my_setattr(name, value, message):
-            if name in module.__dict__:
-                print(
-                    message,
-                    "\n   ",
-                    name,
-                    "is a constant in module",
-                    module.__name__,
-                    "; you cannot change its value.",
-                )
-                return
-            setattr(module, name, eval(value))
-
-        module.__setattr__ = my_setattr
+        module.__class__ = ModuleWithConstants
 
         with open(self.filename) as f:
             source = f.read()
@@ -133,21 +125,7 @@ class MyLoader(Loader):
         exec(source, sys.modules[module.__name__].__dict__)
 
 
-test_code = """
-print('Testing')
-a = 1
-AB = 36
-AB = 44
-ABC = 1, 2, 4
-ABC = 3, 3
-print(a, 'should be 1')
-print(AB, 'should be 36')
-print(ABC, 'should be (1, 2, 4)')
-"""
-
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         MAIN_MODULE_NAME = sys.argv[-1]
         __import__(MAIN_MODULE_NAME)
-    else:
-        exec(transform_constant_assignment(test_code), {})

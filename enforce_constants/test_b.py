@@ -4,10 +4,15 @@ test.XX = "a"  # should not change
 test.a = 42
 print(test.XX, test.a, ": should be 36 42")
 
-A = 42
-print("A = ", A)
-A = 32
+A = 0
+A = 2
 
-A += 1  # this is not prevented to happen
+try:
+    A += 1
+except TypeError:
+    print("Augmented assignment cannot be done.")
 
-print("I cheated: A = ", A)
+a = 0
+a += 1
+
+print(A, a, "should be 0 1")
