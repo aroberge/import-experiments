@@ -4,15 +4,14 @@ import os.path
 import re
 import sys
 import types
+import typing  # noqa
 
 from importlib.abc import Loader, MetaPathFinder
 from importlib.util import spec_from_file_location
 
 MAIN_MODULE_NAME = None
-constant_assignment_pattern = re.compile(r"^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.+)")
-module_assignment_pattern = re.compile(
-    r"^\s*([\w_][\w\d_]*\.[A-Z_][A-Z0-9_]*)\s*=\s*(.+)"
-)
+assignment_pattern = re.compile(r"^\s*([\w][\w\d]*)\s*=\s*(.+)")
+final_declaration_pattern = re.compile(r"^([\w][\w\d]*)\s*:\s*Final\s*=\s*(.+)")
 
 
 def transform_constant_assignment(source, mod_name):
@@ -35,18 +34,24 @@ def transform_constant_assignment(source, mod_name):
     lines = source.split("\n")
     new_lines = ["import sys"]
     for line_number, line in enumerate(lines):
-        match = re.search(constant_assignment_pattern, line)
-        # match_mod = re.search(module_assignment_pattern, line)
+        match = re.search(assignment_pattern, line)
+        match_final = re.search(final_declaration_pattern, line)
         if match:
             name = match.group(1)
-            if name == name.upper():
-                indent = len(line) - len(line.lstrip())
-                message = "Module %s on line %d:" % (mod_name, line_number)
-                new_lines.append(
-                    " " * indent
-                    + "sys.modules[__name__].__setattr__("
-                    + f"{repr(name)}, {repr(match.group(2))}, '{message}')"
-                )
+            indent = len(line) - len(line.lstrip())
+            value = match.group(2)
+            new_lines.append(
+                " " * indent
+                + "sys.modules[__name__].__setattr__("
+                + f"{repr(name)}, ({value}))"
+            )
+        elif match_final:
+            name = match_final.group(1)
+            value = match_final.group(2)
+            new_lines.append(
+                "sys.modules[__name__].__setattr__("
+                + f"{repr(name)}, ({value}), final=True)"
+            )
         else:
             new_lines.append(line)
 
@@ -54,15 +59,17 @@ def transform_constant_assignment(source, mod_name):
 
 
 class ModuleWithConstants(types.ModuleType):
-
-    def __setattr__(self, attr, value, message=None):
-        if attr == attr.upper() and attr in self.__dict__:
-            if message is not None:
-                print(message)
-            else:
-                print("Preventing change from other module:")
-            print(f"You cannot change the value of %s.%s" % (self.__name__, attr))
+    def __setattr__(self, attr, value, final=False):
+        if not hasattr(self, "_constants_dict"):
+            super().__setattr__("_constants_dict", {})
+        if attr in self._constants_dict and not final:
+            print(
+                "You cannot change the value of %s.%s to %s"
+                % (self.__name__, attr, value)
+            )
         else:
+            if final or attr == attr.upper():
+                self._constants_dict[attr] = value
             super().__setattr__(attr, value)
 
 
