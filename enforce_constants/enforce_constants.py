@@ -1,76 +1,18 @@
 """This is a simple proof of concept. It is not meant to be taken seriously."""
 
 import os.path
-import re
 import sys
-import types
+# even though it is not needed here, we import typing so that
+# it will not be processed by our import hook.
 import typing  # noqa
+
+import constant_module_type
+from transformer import transform_assignment
 
 from importlib.abc import Loader, MetaPathFinder
 from importlib.util import spec_from_file_location
 
 MAIN_MODULE_NAME = None
-assignment_pattern = re.compile(r"^\s*([\w][\w\d]*)\s*=\s*(.+)")
-final_declaration_pattern = re.compile(r"^([\w][\w\d]*)\s*:\s*Final\s*=\s*(.+)")
-
-
-def transform_constant_assignment(source, mod_name):
-    """Identifies simple constant assignments and replace them by a
-       special function call. Here, a constant is defined as any identifier
-       written in uppercase letters.
-    """
-    global MAIN_MODULE_NAME
-    # First, ensure that if the module is meant to be run as main script,
-    # anything like
-    #     if __name__ == '__main__'
-    # would still work
-    if MAIN_MODULE_NAME is not None:
-        if "'__main__'" in source:
-            source = source.replace("'__main__'", f"'{MAIN_MODULE_NAME}'")
-        elif '"__main__"' in source:
-            source = source.replace('"__main__"', f'"{MAIN_MODULE_NAME}"')
-        MAIN_MODULE_NAME = None
-
-    lines = source.split("\n")
-    new_lines = ["import sys"]
-    for line_number, line in enumerate(lines):
-        match = re.search(assignment_pattern, line)
-        match_final = re.search(final_declaration_pattern, line)
-        if match:
-            name = match.group(1)
-            indent = len(line) - len(line.lstrip())
-            value = match.group(2)
-            new_lines.append(
-                " " * indent
-                + "sys.modules[__name__].__setattr__("
-                + f"{repr(name)}, ({value}))"
-            )
-        elif match_final:
-            name = match_final.group(1)
-            value = match_final.group(2)
-            new_lines.append(
-                "sys.modules[__name__].__setattr__("
-                + f"{repr(name)}, ({value}), final=True)"
-            )
-        else:
-            new_lines.append(line)
-
-    return "\n".join(new_lines)
-
-
-class ModuleWithConstants(types.ModuleType):
-    def __setattr__(self, attr, value, final=False):
-        if not hasattr(self, "_constants_dict"):
-            super().__setattr__("_constants_dict", {})
-        if attr in self._constants_dict and not final:
-            print(
-                "You cannot change the value of %s.%s to %s"
-                % (self.__name__, attr, value)
-            )
-        else:
-            if final or attr == attr.upper():
-                self._constants_dict[attr] = value
-            super().__setattr__(attr, value)
 
 
 class MyMetaFinder(MetaPathFinder):
@@ -122,13 +64,14 @@ class MyLoader(Loader):
     def exec_module(self, module):
         """import the source code, transform it before executing it so that
            it is known to Python."""
-
-        module.__class__ = ModuleWithConstants
+        global MAIN_MODULE_NAME
+        module.__class__ = constant_module_type.ModuleWithConstants
 
         with open(self.filename) as f:
             source = f.read()
 
-        source = transform_constant_assignment(source, module.__name__)
+        source = transform_assignment(source, module.__name__, MAIN_MODULE_NAME)
+        MAIN_MODULE_NAME = None
         exec(source, sys.modules[module.__name__].__dict__)
 
 
@@ -136,3 +79,4 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         MAIN_MODULE_NAME = sys.argv[-1]
         __import__(MAIN_MODULE_NAME)
+        MAIN_MODULE_NAME = None
