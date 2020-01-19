@@ -6,13 +6,13 @@ import sys
 # it will not be processed by our import hook.
 import typing  # noqa
 
-import constant_module_type
+from constant_module_type import ModuleWithConstants
 from transformer import transform_assignment
 
 from importlib.abc import Loader, MetaPathFinder
 from importlib.util import spec_from_file_location
 
-MAIN_MODULE_NAME = None
+Main_Module_Name = None
 
 
 class MyMetaFinder(MetaPathFinder):
@@ -62,21 +62,27 @@ class MyLoader(Loader):
         return None  # use default module creation semantics
 
     def exec_module(self, module):
-        """import the source code, transform it before executing it so that
+        """Import the source code, transform it before executing it so that
            it is known to Python."""
-        global MAIN_MODULE_NAME
-        module.__class__ = constant_module_type.ModuleWithConstants
+        global Main_Module_Name
+        module.__class__ = ModuleWithConstants
 
         with open(self.filename) as f:
             source = f.read()
 
-        source = transform_assignment(source, module.__name__, MAIN_MODULE_NAME)
-        MAIN_MODULE_NAME = None
+        if Main_Module_Name is not None:
+            sys.modules["__main__"] = sys.modules[module.__name__]
+            module.__name__ = "__main__"
+            Main_Module_Name = None
+
+        source = transform_assignment(source)
         exec(source, sys.modules[module.__name__].__dict__)
 
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
-        MAIN_MODULE_NAME = sys.argv[-1]
-        __import__(MAIN_MODULE_NAME)
-        MAIN_MODULE_NAME = None
+        Main_Module_Name = sys.argv[-1]
+        print("__main__ is", Main_Module_Name)
+        __import__(Main_Module_Name)
+        sys.modules["enforce_constants"] = sys.modules["__main__"]
+        __name__ = "enforce_constants"
