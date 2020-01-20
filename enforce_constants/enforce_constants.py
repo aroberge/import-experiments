@@ -2,17 +2,15 @@
 
 import os.path
 import sys
-# even though it is not needed here, we import typing so that
-# it will not be processed by our import hook.
-import typing  # noqa
-
-from constant_module_type import ModuleWithConstants
-from transformer import transform_assignment
 
 from importlib.abc import Loader, MetaPathFinder
 from importlib.util import spec_from_file_location
 
+from constant_module_type import ModuleWithConstants
+from transformer import transform_assignment
+
 Main_Module_Name = None
+stdlib_dir = os.path.dirname(sys.__file__)
 
 
 class MyMetaFinder(MetaPathFinder):
@@ -30,6 +28,8 @@ class MyMetaFinder(MetaPathFinder):
         else:
             name = fullname
         for entry in path:
+            if stdlib_dir in entry:  # do not process files from standard Library
+                continue
             if os.path.isdir(os.path.join(entry, name)):
                 # this module has child modules
                 filename = os.path.join(entry, name, "__init__.py")
